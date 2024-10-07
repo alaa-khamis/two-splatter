@@ -74,6 +74,8 @@ Where:
 
 ## Results
 
+- Added the command ```vis_utils``` to the evaluation where you can visualize the gaussians for all models (usage --vis_utils #number_of_examples)
+
 ### Quantitative Evaluation
 
 We evaluated the performance on novel data using PSNR, SSIM, and LPIPS metrics.

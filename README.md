@@ -13,12 +13,13 @@ In this project we aim to enhance the **Splatter Image** rendering method by int
   - [Qualitative Evaluation](#qualitative-evaluation)
     - [Render Comparisons](#render-comparisons)
     - [Gaussian Plots Visualization](#gaussian-plots-visualization)
+- [Additional Experiments](#additional-experiments)
 - [Conclusion](#conclusion)
 - [References](#references)
 
 ## Introduction
 
-The **Splatter Image** technique is a rendering method that leverages point-based rendering with Gaussians to efficiently render scenes. In this project, we aim to enhance this method by:
+The **Splatter Image** is a technique that trains a UNet to render 3d gaussian splatter reconstruction of a 3d object by introducing a novel way to split the 3dgs parameters. In this project, we aim to enhance this method by:
 
 - Adding a second splatter image to the output.
 - Introducing a hinge loss during training to separate the front and back layers.
@@ -173,7 +174,7 @@ Below are sample renders comparing the original and enhanced models. We can obse
 </table>
 
 
-*Figure 1: Render comparison between the original and enhanced models.*
+*Render comparison between the original and enhanced models.*
 
 **360 Comparisons**                                    |
 
@@ -206,7 +207,7 @@ Below are sample renders comparing the original and enhanced models. We can obse
   </tr>
 </table>
 
-*Figure 2: Render comparison between the original and enhanced models.*
+*360 Video Render comparison between the original and enhanced models.*
 
 #### Gaussian Plots Visualization
 
@@ -249,7 +250,7 @@ We visualize the separation of Gaussians by plotting them in 3D space. As we can
 </table>
 
 
-## Other Experiments
+## Additional Experiments
 
 We also experimented with different loss functions like the logistic loss which captured the general shape of the gaussians that the original model puts in the back (see figures below). However, we saw that the range of opacity for each gaussian of the back splatter in this model was between 0.006 - 0.001 where as the front splatter would be between 0.2 - 0.04 (which is also the range we got for both front and back splatter images in the final model)
 
@@ -258,7 +259,7 @@ To address this, we tried to add an opacity loss to the model, we experimented w
 ![Opacity Examples](Results/images/combined_opacity.png)
 ![Opacity Origina](Results/images/resized_opacity_2.png)
 
-*Figure 3: Comparison between the base model's back gaussians and our logistic back gaussians*
+*Comparison between the base model's back gaussians and our logistic back gaussians*
 
 ## Conclusion
 

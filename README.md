@@ -49,27 +49,28 @@ These enhancements are designed to improve the fitting of Gaussians to objects, 
 The training loss is comprised of a reconstruction loss and a depth loss:
 
 $$
-\mathcal{L}_{\text{total}} = \lambda_{\text{recon}} \mathcal{L}_{\text{recon}} + \lambda_{\text{depth}} \mathcal{L}_{\text{depth}}
+L_{\text{total}} = \lambda_{\text{recon}} L_{\text{recon}} + \lambda_{\text{depth}} L_{\text{depth}}
 $$
 
 Where:
-- $\mathcal{L}_{\text{recon}}$ is the mean squared error (MSE) between the original and reconstructed images:
+- $L_{\text{recon}}$ is the mean squared error (MSE) between the original and reconstructed images:
 
-  $$
-  \mathcal{L}_{\text{recon}} = \frac{1}{N} \sum_{i=1}^N (\text{original}_i - \text{recon}_i)^2
-  $$
+$$
+L_{\text{recon}} = \frac{1}{N} \sum_{i=1}^N (\text{original}_i - \text{recon}_i)^2
+$$
 
   where $N$ is the total number of pixels in the image.
 
-- $\mathcal{L}_{\text{depth}}$ is a hinge loss between the front and back depth maps:
+- $L_{\text{depth}}$ is a hinge loss between the front and back depth maps:
 
-  $$
-  \mathcal{L}_{\text{depth}} = \frac{1}{M} \sum_{i=1}^M \max(0, \text{depth}_{\text{front},i} - \text{depth}_{\text{back},i} + \Delta)
-  $$
+$$
+L_{depth} = \frac{1}{M} \sum_{i=1}^M \max(0, depth_{front,i} - depth_{back,i} + \Delta)
+$$
 
   where $M$ is the number of pixels in the depth maps and $\Delta$ is a margin.
 
 - $\lambda_{\text{recon}}$ and $\lambda_{\text{depth}}$ are weighting factors for the reconstruction and depth losses, respectively.
+
 
 ![Losses](Results/images/loss_graph.png)
 

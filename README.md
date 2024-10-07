@@ -39,6 +39,7 @@ These enhancements are designed to improve the fitting of Gaussians to objects, 
 
 - **Dataset**: Used 20% of the [SRN-Cars](https://github.com/vsitzmann/scene-representation-networks) dataset due to computational limitations.
 - **Training Configuration**:
+  - All models were trained on a RTX4060
   - **Steps**: Trained for 20,000 steps.
   - **Batch Size**: 4.
 - **Base Model**: Trained the original Splatter Image model under the same configuration for baseline comparison.

@@ -30,7 +30,8 @@ from huggingface_hub import hf_hub_download
 @torch.no_grad()
 def main():
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    print(torch.cuda.is_available())
     device = torch.device("cuda:0")
     torch.cuda.set_device(device)
 

@@ -8,16 +8,17 @@ general:
   device: 0
   random_seed: 0
   num_devices: 1
-  mixed_precision: false
+  mixed_precision: true
 data:
   training_resolution: 128
   subset: -1
   input_images: 1
   origin_distances: false
 opt:
-  iterations: 800001
+  # iterations: 800001
+  iterations: 50001
   base_lr: 0.00005
-  batch_size: 8
+  batch_size: 4
   betas:
     - 0.9
     - 0.999
@@ -29,6 +30,9 @@ opt:
     update_after_step: 100
     beta: 0.9999
   lambda_lpips: 0.0
+  lambda_depth: 1.0
+  lambda_opacity: 0.0
+  depth_loss: hinge
   pretrained_ckpt: null
 
 model:
@@ -52,10 +56,11 @@ model:
   cross_view_attention: true
   base_dim: 128
   isotropic: false
+  two_splatter : true
 
 logging:
-  ckpt_iterations: 1000
-  val_log: 10000
+  ckpt_iterations: 500
+  val_log: 1000
   loss_log: 10
-  loop_log: 10000
-  render_log: 10000
+  loop_log: 1000
+  render_log: 1000

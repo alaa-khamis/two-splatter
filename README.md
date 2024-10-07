@@ -1,175 +1,274 @@
-# splatter-image
-Official implementation of **"Splatter Image: Ultra-Fast Single-View 3D Reconstruction" (CVPR 2024)**
+# Enhancing Splatter Image through Front-Back Gaussian Layering
 
-[16 Apr 2024] Several big updates to the project since the first release:
-- We can now reconstruct **any object**: we trained open-category model trained on Objaverse in just 7 GPU days
-- We now have a [demo](https://huggingface.co/spaces/szymanowiczs/splatter_image) where you can upload your own pictures of **any** object and have our model reconstruct it
-- Models for all 6 datasets are now !released!. We trained 6 models: on Objaverse, multi-category ShapeNet, CO3D hydrants, CO3D teddybears, ShapeNet cars and ShapeNet chairs.
-- SOTA on multi-category ShapeNet
-- Support for multi-GPU training
-- No camera pose pre-processing in CO3D
+In this project we aim to enhance the **Splatter Image** rendering method by introducing a second splatter image output and incorporating a depth loss during training to separate layers—one in the front and one in the back. This separation aims to improve how Gaussians fit the object, leading to better rendering results.
 
-<img src="./demo_examples/demo_screenshot.png"
-            alt="Demo screenshot."/>
-# Demo
+## Table of Contents
 
-Check out the online [demo](https://huggingface.co/spaces/szymanowiczs/splatter_image). Running the demo locally will often be even faster and you will be able to see the loops rendered with Gaussian Splatting (as opposed to the extracted .ply object which can show artefacts). To run the demo locally, simply follow the installation instructions below, and afterwards call:
-```
-python gradio_app.py
-```
+- [Introduction](#introduction)
+- [Methodology](#methodology)
+  - [Enhancements](#enhancements)
+  - [Dataset and Training](#dataset-and-training)
+- [Results](#results)
+  - [Quantitative Evaluation](#quantitative-evaluation)
+  - [Qualitative Evaluation](#qualitative-evaluation)
+    - [Render Comparisons](#render-comparisons)
+    - [Gaussian Plots Visualization](#gaussian-plots-visualization)
+- [Conclusion](#conclusion)
+- [References](#references)
 
-# Installation
+## Introduction
 
-1. Create a conda environment: 
-```
-conda create --name splatter-image
-conda activate splatter-image
-```
+The **Splatter Image** technique is a rendering method that leverages point-based rendering with Gaussians to efficiently render scenes. In this project, we aim to enhance this method by:
 
-Install Pytorch following [official instructions](https://pytorch.org). Pytorch / Python / Pytorch3D combination that was verified to work is:
-- Python 3.8, Pytorch 1.13.0, CUDA 11.6, Pytorch3D 0.7.2
-Alternatively, you can create a separate environment with Pytorch3D 0.7.2, which you use just for CO3D data preprocessing. Then, once CO3D had been preprocessed, you can use these combinations of Python / Pytorch too. 
-- Python 3.7, Pytorch 1.12.1, CUDA 11.6
-- Python 3.8, Pytorch 2.1.1, CUDA 12.1
+- Adding a second splatter image to the output.
+- Introducing a hinge loss during training to separate the front and back layers.
 
-Install other requirements:
-```
-pip install -r requirements.txt
-```
+These enhancements are designed to improve the fitting of Gaussians to objects, resulting in better rendering performance.
 
-2. Install Gaussian Splatting renderer, i.e. the library for rendering a Gaussian Point cloud to an image. To do so, pull the [Gaussian Splatting repository](https://github.com/graphdeco-inria/gaussian-splatting/tree/main) and, with your conda environment activated, run `pip install submodules/diff-gaussian-rasterization`. You will need to meet the [hardware and software requirements](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/README.md#hardware-requirements). We did all our experimentation on an NVIDIA A6000 GPU and speed measurements on an NVIDIA V100 GPU. 
+## Methodology
 
-3. If you want to train on CO3D data you will need to install Pytorch3D 0.7.2. See instructions [here](https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md). It is recommended to install with pip from a pre-built binary. Find a compatible binary [here](https://anaconda.org/pytorch3d/pytorch3d/files?page=5) and install it with `pip`. For example, with Python 3.8, Pytorch 1.13.0, CUDA 11.6 run
-`pip install --no-index --no-cache-dir pytorch3d -f https://anaconda.org/pytorch3d/pytorch3d/0.7.2/download/linux-64/pytorch3d-0.7.2-py38_cu116_pyt1130.tar.bz2`.
+### Enhancements
 
-# Data
+- **Second Splatter Image**: By outputting two splatter images instead of one, we aim to capture more depth information and improve rendering quality.
+- **Hinge Loss for Layer Separation**: A hinge loss is added during training to enforce separation between the front and back layers, allowing the Gaussians to fit the object more accurately.
 
-## ShapeNet cars and chairs
-For training / evaluating on ShapeNet-SRN classes (cars, chairs) please download the srn_\*.zip (\* = cars or chairs) from [PixelNeRF data folder](https://drive.google.com/drive/folders/1PsT3uKwqHHD2bEEHkIXB99AlIjtmrEiR?usp=sharing). Unzip the data file and change `SHAPENET_DATASET_ROOT` in `datasets/srn.py` to the parent folder of the unzipped folder. For example, if your folder structure is: `/home/user/SRN/srn_cars/cars_train`, in `datasets/srn.py` set  `SHAPENET_DATASET_ROOT="/home/user/SRN"`. No additional preprocessing is needed.
+### Dataset and Training
 
-## CO3D hydrants and teddybears
-For training / evaluating on CO3D download the hydrant and teddybear classes from the [CO3D release](https://github.com/facebookresearch/co3d/tree/main). To do so, run the following commands:
-```
-git clone https://github.com/facebookresearch/co3d.git
-cd co3d
-mkdir DOWNLOAD_FOLDER
-python ./co3d/download_dataset.py --download_folder DOWNLOAD_FOLDER --download_categories hydrant,teddybear
-```
-Next, set `CO3D_RAW_ROOT` to your `DOWNLOAD_FOLDER` in `data_preprocessing/preoprocess_co3d.py`. Set `CO3D_OUT_ROOT` to where you want to store preprocessed data. Run 
-```
-python -m data_preprocessing.preprocess_co3d
-``` 
-and set `CO3D_DATASET_ROOT:=CO3D_OUT_ROOT`.
+- **Downloading the Codebase** To locally download and work on the code, follow the instructions in the [Original Repository](https://github.com/szymanowiczs/splatter-image)
 
-## Multi-category ShapeNet
-For multi-category ShapeNet we use the ShapeNet 64x64 dataset by NMR hosted by DVR authors which can be downloaded [here](https://s3.eu-central-1.amazonaws.com/avg-projects/differentiable_volumetric_rendering/data/NMR_Dataset.zip).
-Unzip the folder and set `NMR_DATASET_ROOT` to the directory that holds sub-category folders after unzipping. In other words, `NMR_DATASET_ROOT` directory should contain folders `02691156`, `02828884`, `02933112` etc.
+- **Dataset**: Used 20% of the [SRN-Cars](https://github.com/vsitzmann/scene-representation-networks) dataset due to computational limitations.
+- **Training Configuration**:
+  - **Steps**: Trained for 20,000 steps.
+  - **Batch Size**: 4.
+- **Base Model**: Trained the original Splatter Image model under the same configuration for baseline comparison.
 
-## Objaverse
+#### Loss Graphs
 
-For training on Objaverse we used renderings from Zero-1-to-3 which can be downloaded with the follownig command:
-```
-wget https://tri-ml-public.s3.amazonaws.com/datasets/views_release.tar.gz
-```
-Disclaimer: note that the renderings are generated with Objaverse. The renderings as a whole are released under the ODC-By 1.0 license. The licenses for the renderings of individual objects are released under the same license creative commons that they are in Objaverse.
+The training loss is comprised of a reconstruction loss and a depth loss:
 
-Additionally, please download `lvis-annotations-filtered.json` from the [model repository](https://huggingface.co/szymanowiczs/splatter-image-v1/blob/main/lvis-annotations-filtered.json). 
-This json which holds the list of IDs of objects from the LVIS subset. These assets are of higher quality.
+$$
+\mathcal{L}_{\text{total}} = \lambda_{\text{recon}} \mathcal{L}_{\text{recon}} + \lambda_{\text{depth}} \mathcal{L}_{\text{depth}}
+$$
 
-Set `OBJAVERSE_ROOT` in `datasets/objaverse.py` to the directory of the unzipped folder with renderings, and set `OBJAVERSE_LVIS_ANNOTATION_PATH` in the same file to the directory of the downloaded `.json` file.
+Where:
+- $\mathcal{L}_{\text{recon}}$ is the mean squared error (MSE) between the original and reconstructed images:
 
-Note that Objaverse dataset is meant for training and validation only. It does not have a test subset.
+  $$
+  \mathcal{L}_{\text{recon}} = \frac{1}{N} \sum_{i=1}^N (\text{original}_i - \text{recon}_i)^2
+  $$
 
-## Google Scanned Objects
+  where $N$ is the total number of pixels in the image.
 
-For evaluating the model trained on Objaverse we use Google Scanned Objects dataset to ensure no overlap with the training set. Download [renderings provided by Free3D](https://drive.google.com/file/d/1tV-qpiD5e-GzrjW5dQpTRviZa4YV326b/view). Unzip the downloaded folder and set `GSO_ROOT` in `datasets/gso.py` to the directory of the unzipped folder.
+- $\mathcal{L}_{\text{depth}}$ is a hinge loss between the front and back depth maps:
 
-Note that Google Scanned Objects dataset is not meant for training. It is used to test the model trained on Objaverse.
+  $$
+  \mathcal{L}_{\text{depth}} = \frac{1}{M} \sum_{i=1}^M \max(0, \text{depth}_{\text{front},i} - \text{depth}_{\text{back},i} + \Delta)
+  $$
 
-# Using this repository
+  where $M$ is the number of pixels in the depth maps and $\Delta$ is a margin.
 
-## Pretrained models
+- $\lambda_{\text{recon}}$ and $\lambda_{\text{depth}}$ are weighting factors for the reconstruction and depth losses, respectively.
 
-Pretrained models for all datasets are now available via [Huggingface Models](https://huggingface.co/szymanowiczs/splatter-image-v1). If you just want to run qualitative / quantitative evaluation, do don't need to dowload them manually, they will be used automatically if you run the evaluation script (see below).
+![Losses](Results/images/loss_graph.png)
 
-You can also download them manually if you wish to do so, by manually clicking the download button on the [Huggingface model files page](https://huggingface.co/szymanowiczs/splatter-image-v1). Download the config file with it and see `eval.py` for how the model is loaded.
+## Results
+
+### Quantitative Evaluation
+
+We evaluated the performance on novel data using PSNR, SSIM, and LPIPS metrics.
+
+<table>
+  <tr>
+    <th rowspan="2">Model</th>
+    <th colspan="3" style="text-align:center;">Cond</th>
+    <th colspan="3" style="text-align:center;">Novel</th>
+  </tr>
+  <tr>
+    <th>PSNR ↑</th>
+    <th>SSIM ↑</th>
+    <th>LPIPS ↓</th>
+    <th>PSNR ↑</th>
+    <th>SSIM ↑</th>
+    <th>LPIPS ↓</th>
+  </tr>
+  <tr>
+    <td>Baseline</td>
+    <td>26.69</td>
+    <td>0.937</td>
+    <td>0.121</td>
+    <td>19.99</td>
+    <td>0.846</td>
+    <td>0.225</td>
+  </tr>
+  <tr>
+    <td><strong>Ours</strong></td>
+    <td><strong>28.56</strong></td>
+    <td><strong>0.956</strong></td>
+    <td><strong>0.083</strong></td>
+    <td><strong>20.23</strong></td>
+    <td><strong>0.851</strong></td>
+    <td><strong>0.219</strong></td>
+  </tr>
+</table>
+
+*Table 1: Quantitative comparison between the original and enhanced models.*
+
+### Qualitative Evaluation
+
+#### Render Comparisons
+
+Below are sample renders comparing the original and enhanced models. We can observe that our model preserves the original car shape better than the base model. Especially in the images where the front of the car is shown, the seperation between the front and back gaussians allows the model to give higher quality from the front views compared to the base model where the gaussians would have to find a balance between front and back views, even at such a low steps (20k).
+
+**Red Car**
+
+<table>
+  <tr>
+    <th style="text-align:center;">Base Model</th>
+    <th style="text-align:center;">Our Model</th>
+    <th style="text-align:center;">GT</th>
+  </tr>
+  <tr>
+    <td style="text-align:center;"><img src="Results/images/RedCar/base_60.png" alt="Base Right Side"></td>
+    <td style="text-align:center;"><img src="Results/images/RedCar/our_60.png" alt="Our Right Side"></td>
+    <td style="text-align:center;"><img src="Results/images/RedCar/gt_60.png" alt="GT Right Side"></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;"><img src="Results/images/RedCar/base_191.png" alt="Base Top Side"></td>
+    <td style="text-align:center;"><img src="Results/images/RedCar/our_191.png" alt="Our Top Side"></td>
+    <td style="text-align:center;"><img src="Results/images/RedCar/gt_191.png" alt="GT Top Side"></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;"><img src="Results/images/RedCar/base_86.png" alt="Base Top Side"></td>
+    <td style="text-align:center;"><img src="Results/images/RedCar/our_86.png" alt="Our Top Side"></td>
+    <td style="text-align:center;"><img src="Results/images/RedCar/gt_86.png" alt="GT Top Side"></td>
+  </tr>
+</table>
 
 
-## Evaluation
+* We see that the car shape is relatively consistent in both sides of the car.
 
-Once you downloaded the relevant dataset, evaluation can be run with 
-```
-python eval.py $dataset_name
-```
-`$dataset_name` is the name of the dataset. We support:
-- `gso` (Google Scanned Objects), 
-- `objaverse` (Objaverse-LVIS), 
-- `nmr` (multi-category ShapeNet), 
-- `hydrants` (CO3D hydrants), 
-- `teddybears` (CO3D teddybears), 
-- `cars` (ShapeNet cars), 
-- `chairs` (ShapeNet chairs).
-The code will automatically download the relevant model for the requested dataset.
+**Yellow Car**
 
-You can also train your own models and evaluate it with 
-```
-python eval.py $dataset_name --experiment_path $experiment_path
-```
-`$experiment_path` should hold a `model_latest.pth` file and a `.hydra` folder with `config.yaml` inside it.
+<table>
+  <tr>
+    <th style="text-align:center;">Base Model</th>
+    <th style="text-align:center;">Our Model</th>
+    <th style="text-align:center;">GT</th>
+  </tr>
+  <tr>
+    <td style="text-align:center;"><img src="Results/images/YellowCar/base_60.png" alt="Base Right Side"></td>
+    <td style="text-align:center;"><img src="Results/images/YellowCar/our_60.png" alt="Our Right Side"></td>
+    <td style="text-align:center;"><img src="Results/images/YellowCar/gt_60.png" alt="GT Right Side"></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;"><img src="Results/images/YellowCar/base_191.png" alt="Base Top Side"></td>
+    <td style="text-align:center;"><img src="Results/images/YellowCar/our_191.png" alt="Our Top Side"></td>
+    <td style="text-align:center;"><img src="Results/images/YellowCar/gt_191.png" alt="GT Top Side"></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;"><img src="Results/images/YellowCar/base_86.png" alt="Base Top Side"></td>
+    <td style="text-align:center;"><img src="Results/images/YellowCar/our_86.png" alt="Our Top Side"></td>
+    <td style="text-align:center;"><img src="Results/images/YellowCar/gt_86.png" alt="GT Top Side"></td>
+  </tr>
+</table>
 
-To evaluate on the validation split, call with option `--split val`.
 
-To save renders of the objects with the camera moving in a loop, call with option `--split vis`. With this option the quantitative scores are not returned since ground truth images are not available in all datasets.
+*Figure 1: Render comparison between the original and enhanced models.*
 
-You can set for how many objects to save renders with option `--save_vis`.
-You can set where to save the renders with option `--out_folder`.
+**360 Comparisons**                                    |
 
-## Training
+<table>
+  <tr>
+    <th style="text-align:center;">Base Model</th>
+    <th style="text-align:center;">Our Model</th>
+    <th style="text-align:center;">GT</th>
+  </tr>
+  <tr>
+    <td style="text-align:center;"><img src="Results/gifs/base_gray_360.gif" alt="Base GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/our_gray_360.gif" alt="Our GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/gt_gray_360.gif" alt="GT GIF"></td>
+  </tr>
+    <tr>
+    <td style="text-align:center;"><img src="Results/gifs/base_long_360.gif" alt="Base GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/our_long_360.gif" alt="Our GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/gt_long_360.gif" alt="GT GIF"></td>
+  </tr>
+    <tr>
+    <td style="text-align:center;"><img src="Results/gifs/base_yellow_360.gif" alt="Base GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/our_yellow_360.gif" alt="Our GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/gt_yellow_360.gif" alt="GT GIF"></td>
+  </tr>
+  </tr>
+    <tr>
+    <td style="text-align:center;"><img src="Results/gifs/base_blue_360.gif" alt="Base GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/our_blue_360.gif" alt="Our GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/gt_blue_360.gif" alt="GT GIF"></td>
+  </tr>
+</table>
 
-Single-view models are trained in two stages, first without LPIPS (most of the training), followed by fine-tuning with LPIPS.
-1. The first stage is ran with:
-      ```
-      python train_network.py +dataset=$dataset_name
-      ```
-      where $dataset_name is one of [cars,chairs,hydrants,teddybears,nmr,objaverse].
-      Once it is completed, place the output directory path in configs/experiment/lpips_$experiment_name.yaml in the option `opt.pretrained_ckpt` (by default set to null).
-2. Run second stage with:
-      ```
-      python train_network.py +dataset=$dataset_name +experiment=$lpips_experiment_name
-      ```
-      Which `$lpips_experiment_name` to use depends on the dataset.
-      If $dataset_name is in [cars,hydrants,teddybears], use lpips_100k.yaml.
-      If $dataset_name is chairs, use lpips_200k.yaml.
-      If $dataset_name is nmr, use lpips_nmr.yaml.
-      If $dataset_name is objaverse, use lpips_objaverse.yaml.
-      Remember to place the directory of the model from the first stage in the appropriate .yaml file before launching the second stage.
+*Figure 2: Render comparison between the original and enhanced models.*
 
-To train a 2-view model run:
-```
-python train_network.py +dataset=cars cam_embd=pose_pos data.input_images=2 opt.imgs_per_obj=5
-```
+#### Gaussian Plots Visualization
 
-## Code structure
+We visualize the separation of Gaussians by plotting them in 3D space. As we can see our model splits the gaussian to front and back layerings to capture the object better.
 
-Training loop is implemented in `train_network.py` and evaluation code is in `eval.py`. Datasets are implemented in `datasets/srn.py` and `datasets/co3d.py`. Model is implemented in `scene/gaussian_predictor.py`. The call to renderer can be found in `gaussian_renderer/__init__.py`.
+**Note**: The gaussians shown here are not all of those from splatter image we only showed ones with an opacity that is bigger than a chosen threshold for better visualization. 
 
-## Camera conventions
+**Our Model Gaussians**:
 
-Gaussian rasterizer assumes row-major order of rigid body transform matrices, i.e. that position vectors are row vectors. It also requires cameras in the COLMAP / OpenCV convention, i.e., that x points right, y down, and z away from the camera (forward).
+<table>
+  <tr>
+    <th style="text-align:center;">Front Splatter</th>
+    <th style="text-align:center;">Back Splatter</th>
+    <th style="text-align:center;">Combined</th>
+  </tr>
+  <tr>
+    <td style="text-align:center;"><img src="Results/gifs/yellow_front_gaussian_360.gif" alt="Front GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/yellow_back_gaussian_360.gif" alt="Back GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/yellow_combined_gaussian_360.gif" alt="Combined GIF"></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;"><img src="Results/gifs/gray_front_gaussian_360.gif" alt="Front GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/gray_back_gaussian_360.gif" alt="Back GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/gray_combined_gaussian_360.gif" alt="Combined GIF"></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;"><img src="Results/gifs/red_front_gaussian_360.gif" alt="Front GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/red_back_gaussian_360.gif" alt="Back GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/red_combined_gaussian_360.gif" alt="Combined GIF"></td>
+  </tr>
+</table>
 
-# BibTeX
+**Base Model Gaussians for Comparison**:
+<table>
+  <tr>
+    <td style="text-align:center;"><img src="Results/gifs/base_yellow_gaussian_360.gif" alt="Base Yellow GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/base_gray_gaussian_360.gif" alt="Base Gray GIF"></td>
+    <td style="text-align:center;"><img src="Results/gifs/base_red_gaussian_360.gif" alt="Base Red GIF"></td>
+  </tr>
+</table>
 
-```
-@inproceedings{szymanowicz24splatter,
-      title={Splatter Image: Ultra-Fast Single-View 3D Reconstruction},
-      author={Stanislaw Szymanowicz and Christian Rupprecht and Andrea Vedaldi},
-      year={2024},
-      booktitle={The IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
-}
-```
 
-# Acknowledgements
+## Other Experiments
 
-S. Szymanowicz is supported by an EPSRC Doctoral Training Partnerships Scholarship (DTP) EP/R513295/1 and the Oxford-Ashton Scholarship.
-A. Vedaldi is supported by ERC-CoG UNION 101001212.
-We thank Eldar Insafutdinov for his help with installation requirements.
+We also experimented with different loss functions like the logistic loss which captured the general shape of the gaussians that the original model puts in the back (see figures below). However, we saw that the range of opacity for each gaussian of the back splatter in this model was between 0.006 - 0.001 where as the front splatter would be between 0.2 - 0.04 (which is also the range we got for both front and back splatter images in the final model)
+
+To address this, we tried to add an opacity loss to the model, we experimented with a smooth l1 loss between the gaussians and a Wasserstein loss between the distribution of the opacity on the gaussians. While the second loss yielded slightly better results, the final model would always underperform in all aspects.
+
+![Opacity Examples](Results/images/combined_opacity.png)
+![Opacity Origina](Results/images/resized_opacity_2.png)
+
+*Figure 3: Comparison between the base model's back gaussians and our logistic back gaussians*
+
+## Conclusion
+
+The enhancements made to the Splatter Image method show promising results both quantitatively and qualitatively. By adding a second splatter image and incorporating a hinge loss for layer separation, we achieved better performance on novel data, as evidenced by improved PSNR, SSIM, and LPIPS scores.
+
+## References
+
+- **Original Paper**: *Kellnhofer, P., Liao, Z., & Sunkavalli, K. (2021). Neural Splatting for Real-Time Rendering of Dynamic Scene Lighting*. [arXiv:2106.13374](https://arxiv.org/abs/2106.13374)
+- **SRN-Cars Dataset**: [Scene Representation Networks](https://github.com/vsitzmann/scene-representation-networks)
+
+---
+
+*For more details, please refer to the project repository.*

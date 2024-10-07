@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import tqdm
+import numpy as np
 from omegaconf import OmegaConf
 
 from huggingface_hub import hf_hub_download
@@ -15,9 +16,26 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 
 from gaussian_renderer import render_predicted
-from scene.gaussian_predictor import GaussianSplatPredictor
+import scene.gaussian_predictor as new_model
+import old_model
 from datasets.dataset_factory import get_dataset
 from utils.loss_utils import ssim as ssim_fn
+from utils.vis_utils import vis_image_preds, vis_gaussian_pos, vis_gaussian_pos_two
+from utils.two_splat_utils import combine_splatter_images
+
+def load_camera_poses(file_path):
+    with open(file_path, 'r') as f:
+        data = f.read()
+    # Split the data into individual matrices
+    matrices_str = data.strip().split('\n\n')
+    camera_poses = []
+    for mat_str in matrices_str:
+        # Convert each matrix string to a list of floats
+        mat_values = list(map(float, mat_str.strip().split()))
+        # Reshape into a 4x4 matrix
+        mat = np.array(mat_values).reshape((4, 4))
+        camera_poses.append(mat)
+    return camera_poses
 
 class Metricator():
     def __init__(self, device):
@@ -29,7 +47,7 @@ class Metricator():
         return psnr, ssim, lpips
 
 @torch.no_grad()
-def evaluate_dataset(model, dataloader, device, model_cfg, save_vis=0, out_folder=None
+def evaluate_dataset(model, dataloader, device, model_cfg, save_vis=0, out_folder=None, vis_two=0
                      ):
     """
     Runs evaluation on the dataset passed in the dataloader. 
@@ -37,6 +55,8 @@ def evaluate_dataset(model, dataloader, device, model_cfg, save_vis=0, out_folde
     Args:
         save_vis: how many examples will have visualisations saved
     """
+
+    vis_flag = True
 
     if save_vis > 0:
 
@@ -84,7 +104,7 @@ def evaluate_dataset(model, dataloader, device, model_cfg, save_vis=0, out_folde
             input_images = data["gt_images"][:, :model_cfg.data.input_images, ...]
 
         example_id = dataloader.dataset.get_example_id(d_idx)
-        if d_idx < save_vis:
+        if d_idx < save_vis or d_idx < vis_two:
 
             out_example_gt = os.path.join(out_folder, "{}_".format(d_idx) + example_id + "_gt")
             out_example = os.path.join(out_folder, "{}_".format(d_idx) + example_id)
@@ -98,8 +118,27 @@ def evaluate_dataset(model, dataloader, device, model_cfg, save_vis=0, out_folde
                                rot_transform_quats,
                                focals_pixels_pred)
 
+        if d_idx < vis_two and type(reconstruction) == tuple:
+            vis_gaussian_pos(reconstruction[0], False, os.path.join(out_example,'front'), 'front_')
+            vis_gaussian_pos(reconstruction[1], False, os.path.join(out_example,'back'), 'back_')
+            vis_gaussian_pos_two((reconstruction[0], reconstruction[1]), False,  os.path.join(out_example,'combined'))
+        
+        # Visualize Gaussians
+        if d_idx < save_vis:
+            if type(reconstruction) == tuple:
+                vis_gaussian_pos(reconstruction[0], True, os.path.join(out_example,'front'), 'front_')
+                vis_gaussian_pos(reconstruction[1], True, os.path.join(out_example,'back'), 'back_')
+                vis_gaussian_pos_two((reconstruction[0], reconstruction[1]), True,  os.path.join(out_example,'combined'))
+                vis_image_preds((reconstruction[0], reconstruction[1]), os.path.join(out_example,'reconstruction'))
+            else:
+                vis_gaussian_pos(reconstruction, True, os.path.join(out_example,'gaussians'), '')
+                vis_image_preds([reconstruction], os.path.join(out_example,'reconstruction'))
+        
+        if type(reconstruction) == tuple:
+            reconstruction = combine_splatter_images(reconstruction[0], reconstruction[1])
+
         for r_idx in range( data["gt_images"].shape[1]):
-            if "focals_pixels" in data.keys():
+            if "focals_*pixels" in data.keys():
                 focals_pixels_render = data["focals_pixels"][0, r_idx]
             else:
                 focals_pixels_render = None
@@ -112,7 +151,6 @@ def evaluate_dataset(model, dataloader, device, model_cfg, save_vis=0, out_folde
                                      focals_pixels=focals_pixels_render)["render"]
 
             if d_idx < save_vis:
-                # vis_image_preds(reconstruction, out_example)
                 torchvision.utils.save_image(image, os.path.join(out_example, '{0:05d}'.format(r_idx) + ".png"))
                 torchvision.utils.save_image(data["gt_images"][0, r_idx, ...], os.path.join(out_example_gt, '{0:05d}'.format(r_idx) + ".png"))
 
@@ -127,6 +165,8 @@ def evaluate_dataset(model, dataloader, device, model_cfg, save_vis=0, out_folde
                     psnr_all_renders_novel.append(psnr)
                     ssim_all_renders_novel.append(ssim)
                     lpips_all_renders_novel.append(lpips)
+
+        vis_flag = True
 
         psnr_all_examples_cond.append(sum(psnr_all_renders_cond) / len(psnr_all_renders_cond))
         ssim_all_examples_cond.append(sum(ssim_all_renders_cond) / len(ssim_all_renders_cond))
@@ -219,6 +259,9 @@ def eval_robustness(model, dataloader, device, model_cfg, out_folder=None):
                                 data["view_to_world_transforms"][:, :model_cfg.data.input_images, ...],
                                 rot_transform_quats,
                                 focals_pixels_pred)
+        
+        if type(reconstruction) == tuple:
+            reconstruction = combine_splatter_images(reconstruction[0], reconstruction[1])
 
         for r_idx in range( data["gt_images"].shape[1]):
             if "focals_pixels" in data.keys():
@@ -237,7 +280,7 @@ def eval_robustness(model, dataloader, device, model_cfg, out_folder=None):
             torchvision.utils.save_image(data["gt_images"][0, r_idx, ...], os.path.join(out_example_gt, '{0:05d}'.format(r_idx) + ".png"))
 
 @torch.no_grad()
-def main(dataset_name, experiment_path, device_idx, split='test', save_vis=0, out_folder=None):
+def main(dataset_name, experiment_path, device_idx, split='test', save_vis=0, out_folder=None, vis_two=0):
     
     # set device and random seed
     device = torch.device("cuda:{}".format(device_idx))
@@ -269,7 +312,11 @@ def main(dataset_name, experiment_path, device_idx, split='test', save_vis=0, ou
             assert training_cfg.data.category == dataset_name, "Model-dataset mismatch"
 
     # load model
-    model = GaussianSplatPredictor(training_cfg)
+    if args.experiment_path is None:
+        model = old_model.GaussianSplatPredictor(training_cfg)  
+    else:
+        model = new_model.GaussianSplatPredictor(training_cfg)
+
     ckpt_loaded = torch.load(model_path, map_location=device)
     model.load_state_dict(ckpt_loaded["model_state_dict"])
     model = model.to(device)
@@ -284,7 +331,7 @@ def main(dataset_name, experiment_path, device_idx, split='test', save_vis=0, ou
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False,
                             persistent_workers=True, pin_memory=True, num_workers=1)
     
-    scores = evaluate_dataset(model, dataloader, device, training_cfg, save_vis=save_vis, out_folder=out_folder)
+    scores = evaluate_dataset(model, dataloader, device, training_cfg, save_vis=save_vis, out_folder=out_folder, vis_two=vis_two)
     if split != 'vis':
         print(scores)
     return scores
@@ -302,6 +349,7 @@ def parse_arguments():
                         You can also use this to evaluate on the training or validation splits.')
     parser.add_argument('--out_folder', type=str, default='out', help='Output folder to save renders (default: out)')
     parser.add_argument('--save_vis', type=int, default=0, help='Number of examples for which to save renders (default: 0)')
+    parser.add_argument('--vis_two', type=int, default=0, help='Number of examples for which to save two splatter gaussian visualization (default: 0)')
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -320,10 +368,11 @@ if __name__ == "__main__":
         print("Will not print or save scores. Use a different --split to return scores.")
     out_folder = args.out_folder
     save_vis = args.save_vis
+    vis_two = args.vis_two
     if save_vis == 0:
         print("Not saving any renders (only computing scores). To save renders use flag --save_vis")
 
-    scores = main(dataset_name, experiment_path, 0, split=split, save_vis=save_vis, out_folder=out_folder)
+    scores = main(dataset_name, experiment_path, 0, split=split, save_vis=save_vis, out_folder=out_folder, vis_two=vis_two)
     # save scores to json in the experiment folder if appropriate split was used
     if split != "vis":
         if experiment_path is not None:

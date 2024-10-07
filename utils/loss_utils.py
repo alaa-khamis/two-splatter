@@ -14,11 +14,61 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from math import exp
 
+def get_depth_loss_fn(loss_name):
+    if loss_name == "hinge":
+        return hinge_loss
+    elif loss_name == "logistic":
+        return logistic_loss
+    else:
+        raise ValueError(f"Unknown depth loss function: {loss_name}")
+    
+def hinge_loss(front_depth, back_depth):
+    return torch.clamp(front_depth - back_depth, min=0).mean()
+
+def logistic_loss(front_depth, back_depth):
+    return torch.nn.functional.softplus(front_depth - back_depth).mean()
+
+def soft_opacity_loss(opacity_front, opacity_back):
+    """
+    Computes a soft loss between two tensors of opacities by calculating
+    the Wasserstein distance between their distributions.
+
+    Args:
+        opacity_front (torch.Tensor): Opacities from the front layer (B, N, 1).
+        opacity_back (torch.Tensor): Opacities from the back layer (B, N, 1).
+
+    Returns:
+        torch.Tensor: The computed loss value.
+    """
+    # Ensure the tensors are 1D by flattening the batch and spatial dimensions
+    opacity_front = opacity_front.view(-1)
+    opacity_back = opacity_back.view(-1)
+
+    # Sort the opacities to create ordered distributions
+    front_sorted, _ = torch.sort(opacity_front)
+    back_sorted, _ = torch.sort(opacity_back)
+
+    # Compute the cumulative distribution functions (CDFs)
+    front_cdf = torch.cumsum(front_sorted, dim=0)
+    back_cdf = torch.cumsum(back_sorted, dim=0)
+
+    # Normalize the CDFs to range [0, 1]
+    front_cdf /= front_cdf[-1] + 1e-8  # Add epsilon to avoid division by zero
+    back_cdf /= back_cdf[-1] + 1e-8
+
+    # Compute the Wasserstein distance (Earth Mover's Distance)
+    loss = torch.mean(torch.abs(front_cdf - back_cdf))
+
+    return loss
+
 def l1_loss(network_output, gt):
     return torch.abs((network_output - gt)).mean()
 
 def l2_loss(network_output, gt):
     return ((network_output - gt) ** 2).mean()
+
+def huber_loss(opacity1, opacity2):
+    return torch.nn.functional.huber_loss(opacity1, opacity2).mean()
 
 def gaussian(window_size, sigma):
     gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])

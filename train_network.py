@@ -8,12 +8,14 @@ import torch
 from torch.utils.data import DataLoader
 
 from lightning.fabric import Fabric
+from lightning.fabric.strategies import DDPStrategy
 
 from ema_pytorch import EMA
 from omegaconf import DictConfig, OmegaConf
 
 from utils.general_utils import safe_state
-from utils.loss_utils import l1_loss, l2_loss
+from utils.two_splat_utils import combine_splatter_images
+from utils.loss_utils import l1_loss, l2_loss, get_depth_loss_fn, huber_loss, soft_opacity_loss
 import lpips as lpips_lib
 
 from eval import evaluate_dataset
@@ -21,16 +23,21 @@ from gaussian_renderer import render_predicted
 from scene.gaussian_predictor import GaussianSplatPredictor
 from datasets.dataset_factory import get_dataset
 
-
 @hydra.main(version_base=None, config_path='configs', config_name="default_config")
 def main(cfg: DictConfig):
 
+    print("Available devices:", torch.cuda.device_count())
+    for i in range(torch.cuda.device_count()):
+        print(f"Device {i}: {torch.cuda.get_device_name(i)}")
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0" 
+
     torch.set_float32_matmul_precision('high')
     if cfg.general.mixed_precision:
-        fabric = Fabric(accelerator="cuda", devices=cfg.general.num_devices, strategy="ddp",
+        fabric = Fabric(accelerator="cuda", devices=cfg.general.num_devices, strategy=DDPStrategy(process_group_backend='gloo'),
                         precision="16-mixed")
     else:
-        fabric = Fabric(accelerator="cuda", devices=cfg.general.num_devices, strategy="ddp")
+        fabric = Fabric(accelerator="cuda", devices=cfg.general.num_devices, strategy=DDPStrategy(process_group_backend='gloo'))
     fabric.launch()
 
     if fabric.is_global_zero:
@@ -41,11 +48,12 @@ def main(cfg: DictConfig):
         )
 
         if os.path.isdir(os.path.join(vis_dir, "wandb")):
-            run_name_path = glob.glob(os.path.join(vis_dir, "wandb", "latest-run", "run-*"))[0]
+            run_name_path = glob.glob(os.path.join(vis_dir, "wandb", "run-*"))[0]
             print("Got run name path {}".format(run_name_path))
-            run_id = os.path.basename(run_name_path).split("run-")[1].split(".wandb")[0]
+            run_id = os.path.basename(run_name_path).split("run-")[1].split("-")[-1]
             print("Resuming run with id {}".format(run_id))
-            wandb_run = wandb.init(project=cfg.wandb.project, resume=True,
+
+            wandb_run = wandb.init(project=cfg.wandb.project, resume="allow",
                             id = run_id, config=dict_cfg)
 
         else:
@@ -113,7 +121,11 @@ def main(cfg: DictConfig):
     if cfg.opt.lambda_lpips != 0:
         lpips_fn = fabric.to_device(lpips_lib.LPIPS(net='vgg'))
     lambda_lpips = cfg.opt.lambda_lpips
+    lambda_depth = cfg.opt.lambda_depth
+    lambda_opacity = cfg.opt.lambda_opacity
     lambda_l12 = 1.0 - lambda_lpips
+    depth_loss_fn = get_depth_loss_fn(cfg.opt.depth_loss)
+    opacity_loss_fn = soft_opacity_loss
 
     bg_color = [1, 1, 1] if cfg.data.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32)
@@ -159,7 +171,9 @@ def main(cfg: DictConfig):
     iteration = first_iter
 
     for num_epoch in range((cfg.opt.iterations + 1 - first_iter)// len(dataloader) + 1):
-        dataloader.sampler.set_epoch(num_epoch)        
+        dataloader.sampler.set_epoch(num_epoch)
+
+        print(f'Epoch: {num_epoch}')
 
         for data in dataloader:
             iteration += 1
@@ -183,6 +197,16 @@ def main(cfg: DictConfig):
                                                 rot_transform_quats,
                                                 focals_pixels_pred)
 
+            depth_loss_sum = 0.0
+            opacity_loss_sum = 0.0
+            if cfg.model.two_splatter and type(gaussian_splats) == tuple:
+                front_splatter, back_splatter, depths = gaussian_splats
+
+                depth_loss_sum = depth_loss_fn(depths[0], depths[1])
+
+                opacity_loss_sum = opacity_loss_fn(front_splatter['opacity'], back_splatter['opacity'])
+                
+                gaussian_splats = combine_splatter_images(front_splatter, back_splatter)   # Combine splatter images if using two-splatter
 
             if cfg.data.category == "hydrants" or cfg.data.category == "teddybears":
                 # regularize very big gaussians
@@ -236,7 +260,11 @@ def main(cfg: DictConfig):
                     lpips_fn(rendered_images * 2 - 1, gt_images * 2 - 1),
                     )
 
-            total_loss = l12_loss_sum * lambda_l12 + lpips_loss_sum * lambda_lpips
+            total_loss = l12_loss_sum * lambda_l12 \
+                        + lpips_loss_sum * lambda_lpips \
+                        + depth_loss_sum * lambda_depth \
+                        + opacity_loss_sum * lambda_opacity
+
             if cfg.data.category == "hydrants" or cfg.data.category == "teddybears":
                 total_loss = total_loss + big_gaussian_reg_loss + small_gaussian_reg_loss
 
@@ -260,9 +288,17 @@ def main(cfg: DictConfig):
             with torch.no_grad():
                 if iteration % cfg.logging.loss_log == 0 and fabric.is_global_zero:
                     wandb.log({"training_loss": np.log10(total_loss.item() + 1e-8)}, step=iteration)
+                    wandb.log({"training_l12_loss": np.log10(l12_loss_sum.item() + 1e-8)}, step=iteration)
+
                     if cfg.opt.lambda_lpips != 0:
-                        wandb.log({"training_l12_loss": np.log10(l12_loss_sum.item() + 1e-8)}, step=iteration)
                         wandb.log({"training_lpips_loss": np.log10(lpips_loss_sum.item() + 1e-8)}, step=iteration)
+                    
+                    if cfg.opt.lambda_depth != 0:
+                        wandb.log({"training_depth_loss": np.log10(depth_loss_sum.item() + 1e-8)}, step=iteration)
+                    
+                    if cfg.opt.lambda_opacity != 0:
+                        wandb.log({"training_opacity_loss": np.log10(opacity_loss_sum.item() + 1e-8)}, step=iteration)
+
                     if cfg.data.category == "hydrants" or cfg.data.category == "teddybears":
                         if type(big_gaussian_reg_loss) == float:
                             brl_for_log = big_gaussian_reg_loss
@@ -306,6 +342,10 @@ def main(cfg: DictConfig):
                                                         vis_data["view_to_world_transforms"][:, :cfg.data.input_images, ...],
                                                         rot_transform_quats,
                                                         focals_pixels_pred)
+                    
+                    # Combine splatter images if using two-splatter
+                    if cfg.model.two_splatter and type(gaussian_splats_vis) == tuple:
+                        gaussian_splats_vis = combine_splatter_images(gaussian_splats_vis[0], gaussian_splats_vis[1])
 
                     test_loop = []
                     test_loop_gt = []
